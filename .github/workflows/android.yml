@@ -46,7 +46,7 @@ jobs:
           tar czf ../../../openfang-aarch64-linux-android.tar.gz openfang
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openfang-android-aarch64
           path: openfang-aarch64-linux-android.tar.gz
