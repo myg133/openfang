@@ -1,0 +1,65 @@
+name: Android Build
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  android-build:
+    name: Build Android (aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Setup Android NDK
+        uses: nicksAndPetters/setup-android-ndk@v1
+        with:
+          ndk-version: r25b
+          api-level: 24
+
+      - name: Configure linker
+        run: |
+          mkdir -p .cargo
+          cat >> .cargo/config.toml << 'EOF'
+          [target.aarch64-linux-android]
+          linker = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          EOF
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build CLI
+        run: cargo build --target aarch64-linux-android --release -p openfang-cli
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openfang-android-aarch64
+          path: target/aarch64-linux-android/release/openfang
+          retention-days: 30
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: target/aarch64-linux-android/release/openfang
+          name: OpenFang Android (aarch64)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
