@@ -27,17 +27,17 @@ jobs:
           targets: aarch64-linux-android
 
       - name: Setup Android NDK
-        uses: nicksAndPetters/setup-android-ndk@v1
+        uses: android-ndk-action/setup-android-ndk@v1
+        id: setup-ndk
         with:
           ndk-version: r25b
-          api-level: 24
 
       - name: Configure linker
         run: |
           mkdir -p .cargo
           cat >> .cargo/config.toml << 'EOF'
           [target.aarch64-linux-android]
-          linker = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          linker = "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           EOF
 
       - name: Cache Rust
