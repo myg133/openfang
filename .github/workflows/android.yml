@@ -15,39 +15,39 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Android NDK
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget unzip
-          wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip -O /tmp/ndk.zip
-          sudo unzip -q /tmp/ndk.zip -C /opt/
-          rm /tmp/ndk.zip
-          echo "ANDROID_NDK_HOME=/opt/android-ndk-r25b" >> $GITHUB_ENV
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
 
-      - name: Configure linker
+      - name: Setup Android NDK
         run: |
-          mkdir -p .cargo
-          cat >> .cargo/config.toml << 'EOF'
-          [target.aarch64-linux-android]
-          linker = "/opt/android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
-          EOF
+          sudo apt-get update -qq
+          sudo apt-get install -y wget unzip
+          wget -q https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
+          unzip -q android-ndk-r27c-linux.zip
+          echo "ANDROID_NDK_HOME=$GITHUB_WORKSPACE/android-ndk-r27c" >> $GITHUB_ENV
+          echo "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
           key: android-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build CLI
-        run: cargo build --target aarch64-linux-android --release -p openfang-cli
+      - name: Build release
+        shell: bash
+        run: |
+          export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
+          cargo build --release --target aarch64-linux-android -p openfang-cli
+
+      - name: Package
+        run: |
+          cd target/aarch64-linux-android/release
+          tar czf ../../../openfang-aarch64-linux-android.tar.gz openfang
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: openfang-android-aarch64
-          path: target/aarch64-linux-android/release/openfang
+          path: openfang-aarch64-linux-android.tar.gz
           retention-days: 30
