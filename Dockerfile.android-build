@@ -1,14 +1,21 @@
 # Multi-stage Dockerfile for Android aarch64 build
 # This file compiles OpenFang for Android aarch64 and allows extracting the binary
 
-# Stage 1: Build stage
-FROM ghcr.io/cross-rs/aarch64-linux-android:main AS builder
+# Stage 1: Build stage - use cross-rs directly
+FROM ubuntu:22.04 AS builder
 
-# Install build dependencies
+# Install dependencies for cross
 RUN apt-get update && apt-get install -y \
+    curl \
+    git \
     pkg-config \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Install cross tool
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal && \
+    export PATH="$HOME/.cargo/bin:$PATH" && \
+    cargo install cross
 
 # Set working directory
 WORKDIR /project
@@ -16,13 +23,9 @@ WORKDIR /project
 # Copy the project files
 COPY . .
 
-# Build the project for aarch64-linux-android
-# Build CLI binary
-RUN cargo build --target aarch64-linux-android --release --bin openfang
-
-# Note: openfang-desktop requires GUI libraries not available in Android environment
-# For Android, we only build the CLI binary
-# RUN cargo build --target aarch64-linux-android --release --bin openfang-desktop
+# Build the project for aarch64-linux-android using cross
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN cross build --target aarch64-linux-android --release --bin openfang
 
 # Stage 2: Export stage - creates a minimal image with just the binaries
 FROM scratch AS export
