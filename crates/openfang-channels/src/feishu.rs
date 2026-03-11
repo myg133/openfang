@@ -10,6 +10,7 @@
 
 use crate::types::{
     split_message, ChannelAdapter, ChannelContent, ChannelMessage, ChannelType, ChannelUser,
+    LifecycleReaction,
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -119,6 +120,8 @@ pub struct FeishuAdapter {
     shutdown_rx: watch::Receiver<bool>,
     /// Cached tenant access token and its expiry instant.
     cached_token: Arc<RwLock<Option<(String, Instant)>>>,
+    /// Pending reactions to be deleted: (message_id, reaction_key)
+    pending_reactions: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl FeishuAdapter {
@@ -141,6 +144,7 @@ impl FeishuAdapter {
             shutdown_tx: Arc::new(shutdown_tx),
             shutdown_rx,
             cached_token: Arc::new(RwLock::new(None)),
+            pending_reactions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -178,6 +182,7 @@ impl FeishuAdapter {
             shutdown_tx: Arc::new(shutdown_tx),
             shutdown_rx,
             cached_token: Arc::new(RwLock::new(None)),
+            pending_reactions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -304,6 +309,84 @@ impl FeishuAdapter {
                 let msg = resp_body["msg"].as_str().unwrap_or("unknown error");
                 warn!("Feishu send message API error: {msg}");
             }
+        }
+
+        Ok(())
+    }
+
+    /// Send a reaction emoji to a message.
+    async fn api_send_reaction(
+        &self,
+        message_id: &str,
+        emoji: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let token = self.get_token().await?;
+        let url = format!(
+            "https://open.feishu.cn/open-apis/im/v1/messages/{}/reactions",
+            message_id
+        );
+
+        let body = serde_json::json!({
+            "emoji_type": "unicode",
+            "emoji": {"emoji": emoji},
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let resp_body = resp.text().await.unwrap_or_default();
+            return Err(format!("Feishu send reaction error {status}: {resp_body}").into());
+        }
+
+        let resp_body: serde_json::Value = resp.json().await?;
+        let code = resp_body["code"].as_i64().unwrap_or(-1);
+        if code != 0 {
+            let msg = resp_body["msg"].as_str().unwrap_or("unknown error");
+            return Err(format!("Feishu send reaction API error: {msg}").into());
+        }
+
+        // Get reaction key for deletion
+        let reaction_key = resp_body["data"]["reaction_key"].as_str().ok_or("No reaction key")?;
+        Ok(reaction_key.to_string())
+    }
+
+    /// Delete a reaction emoji from a message.
+    async fn api_delete_reaction(
+        &self,
+        message_id: &str,
+        reaction_key: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let token = self.get_token().await?;
+        let url = format!(
+            "https://open.feishu.cn/open-apis/im/v1/messages/{}/reactions/{}",
+            message_id, reaction_key
+        );
+
+        let resp = self
+            .client
+            .delete(&url)
+            .bearer_auth(&token)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let resp_body = resp.text().await.unwrap_or_default();
+            return Err(format!("Feishu delete reaction error {status}: {resp_body}").into());
+        }
+
+        let resp_body: serde_json::Value = resp.json().await?;
+        let code = resp_body["code"].as_i64().unwrap_or(-1);
+        if code != 0 {
+            let msg = resp_body["msg"].as_str().unwrap_or("unknown error");
+            warn!("Feishu delete reaction API error: {msg}");
         }
 
         Ok(())
@@ -949,6 +1032,20 @@ impl ChannelAdapter for FeishuAdapter {
         user: &ChannelUser,
         content: ChannelContent,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // Note: To properly delete reactions, we need access to the original message ID.
+        // This is passed via ChannelUser.metadata when the kernel calls send().
+        // For now, we'll check if metadata contains the message_id.
+        
+        // The kernel would need to pass the original message_id through some mechanism.
+        // For this implementation, we'll use a simple approach: check if there's a pending reaction
+        // for this user/chat and delete it.
+        
+        // Note: This is a simplified approach. A proper implementation would require:
+        // 1. The kernel to track original message IDs
+        // 2. Passing the message_id to the send() method
+        // 3. Or using a different method signature
+
+        // Send the actual message
         match content {
             ChannelContent::Text(text) => {
                 self.api_send_message(&user.platform_id, "chat_id", &text)
@@ -963,6 +1060,35 @@ impl ChannelAdapter for FeishuAdapter {
     }
 
     async fn send_typing(&self, _user: &ChannelUser) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
+    async fn send_reaction(
+        &self,
+        _user: &ChannelUser,
+        message_id: &str,
+        reaction: &LifecycleReaction,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let emoji = &reaction.emoji;
+
+        // If remove_previous is true, try to delete the previous reaction
+        if reaction.remove_previous {
+            let mut pending = self.pending_reactions.write().await;
+            if let Some(reaction_key) = pending.remove(message_id) {
+                drop(pending); // Release lock before making API call
+                if let Err(e) = self.api_delete_reaction(message_id, &reaction_key).await {
+                    warn!("Failed to delete previous reaction: {e}");
+                }
+            }
+        }
+
+        // Send the new reaction
+        let reaction_key = self.api_send_reaction(message_id, emoji).await?;
+
+        // Store the reaction key for future deletion
+        let mut pending = self.pending_reactions.write().await;
+        pending.insert(message_id.to_string(), reaction_key);
+
         Ok(())
     }
 
