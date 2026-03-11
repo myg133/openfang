@@ -129,10 +129,8 @@ chmod +x openfang openfang-api
 
 The following files will be created in the output directory:
 
-- `openfang` - Main CLI binary (only binary available for Android)
+- `openfang` - Main CLI binary
 - `checksums.txt` - SHA256 checksum of the binary
-
-**Note**: `openfang-desktop` requires GUI libraries not available in the Android environment, so only the CLI binary is built for Android aarch64.
 
 ## Architecture Information
 
