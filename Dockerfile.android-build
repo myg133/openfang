@@ -20,18 +20,15 @@ COPY . .
 # Build CLI binary
 RUN cargo build --target aarch64-linux-android --release --bin openfang
 
-# Build API binary  
-RUN cargo build --target aarch64-linux-android --release --bin openfang-api
-
-# Optional: Build other binaries if needed
-# RUN cargo build --target aarch64-linux-android --release --bin <other-binary-name>
+# Note: openfang-desktop requires GUI libraries not available in Android environment
+# For Android, we only build the CLI binary
+# RUN cargo build --target aarch64-linux-android --release --bin openfang-desktop
 
 # Stage 2: Export stage - creates a minimal image with just the binaries
 FROM scratch AS export
 
 # Copy binaries from builder stage
 COPY --from=builder /project/target/aarch64-linux-android/release/openfang /openfang
-COPY --from=builder /project/target/aarch64-linux-android/release/openfang-api /openfang-api
 
 # The scratch stage is used for extraction, not for running
 
@@ -46,10 +43,9 @@ RUN apk add --no-cache \
 
 # Copy binaries from builder stage
 COPY --from=builder /project/target/aarch64-linux-android/release/openfang /usr/local/bin/openfang
-COPY --from=builder /project/target/aarch64-linux-android/release/openfang-api /usr/local/bin/openfang-api
 
-# Make binaries executable
-RUN chmod +x /usr/local/bin/openfang /usr/local/bin/openfang-api
+# Make binary executable
+RUN chmod +x /usr/local/bin/openfang
 
 # Set working directory
 WORKDIR /output

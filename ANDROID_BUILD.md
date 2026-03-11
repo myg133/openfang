@@ -54,9 +54,8 @@ docker build -f Dockerfile.android-build -t openfang-android-build:latest .
 # Create a temporary container
 CONTAINER_ID=$(docker create openfang-android-build:latest)
 
-# Copy binaries
+# Copy binary
 docker cp $CONTAINER_ID:/usr/local/bin/openfang ./openfang
-docker cp $CONTAINER_ID:/usr/local/bin/openfang-api ./openfang-api
 
 # Cleanup
 docker rm $CONTAINER_ID
@@ -67,10 +66,9 @@ docker rm $CONTAINER_ID
 ```bash
 # Check file type (may show "unknown" for cross-compiled binaries)
 file openfang
-file openfang-api
 
 # Create checksums
-sha256sum openfang openfang-api > checksums.txt
+sha256sum openfang > checksums.txt
 ```
 
 ## Using the Binaries on Android
@@ -78,23 +76,19 @@ sha256sum openfang openfang-api > checksums.txt
 1. **Transfer to Device**
    ```bash
    adb push openfang /data/local/tmp/
-   adb push openfang-api /data/local/tmp/
    ```
 
 2. **Make Executable**
    ```bash
    adb shell
    cd /data/local/tmp
-   chmod +x openfang openfang-api
+   chmod +x openfang
    ```
 
 3. **Run**
    ```bash
    # Run OpenFang CLI
    ./openfang --help
-
-   # Run OpenFang API
-   ./openfang-api --help
    ```
 
 ## Dockerfile Structure
@@ -135,9 +129,10 @@ chmod +x openfang openfang-api
 
 The following files will be created in the output directory:
 
-- `openfang` - Main CLI binary
-- `openfang-api` - API server binary
-- `checksums.txt` - SHA256 checksums of the binaries
+- `openfang` - Main CLI binary (only binary available for Android)
+- `checksums.txt` - SHA256 checksum of the binary
+
+**Note**: `openfang-desktop` requires GUI libraries not available in the Android environment, so only the CLI binary is built for Android aarch64.
 
 ## Architecture Information
 

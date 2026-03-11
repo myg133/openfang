@@ -58,19 +58,11 @@ else
     echo -e "    ${RED}❌ Failed to extract openfang${NC}"
 fi
 
-# Extract openfang-api binary
-echo -e "  ${CYAN}- Extracting openfang-api binary...${NC}"
-if docker cp "$container_id:/usr/local/bin/openfang-api" "$OUTPUT_DIR/openfang-api"; then
-    echo -e "    ${GREEN}✅ openfang-api extracted${NC}"
-else
-    echo -e "    ${RED}❌ Failed to extract openfang-api${NC}"
-fi
-
 # Cleanup container
 docker rm "$container_id" > /dev/null
 
-# Check extracted binaries
-echo -e "\n${YELLOW}🔍 Verifying extracted binaries...${NC}"
+# Check extracted binary
+echo -e "\n${YELLOW}🔍 Verifying extracted binary...${NC}"
 
 check_binary() {
     local name=$1
@@ -91,15 +83,14 @@ check_binary() {
 }
 
 check_binary "openfang" "$OUTPUT_DIR/openfang"
-check_binary "openfang-api" "$OUTPUT_DIR/openfang-api"
 
 # Create checksums
 echo -e "\n${YELLOW}🔒 Creating checksums...${NC}"
 if command -v sha256sum &> /dev/null; then
-    (cd "$OUTPUT_DIR" && sha256sum openfang openfang-api > checksums.txt)
+    (cd "$OUTPUT_DIR" && sha256sum openfang > checksums.txt)
     echo -e "  ${GREEN}✅ Checksums saved to $OUTPUT_DIR/checksums.txt${NC}"
 elif command -v shasum &> /dev/null; then
-    (cd "$OUTPUT_DIR" && shasum -a 256 openfang openfang-api > checksums.txt)
+    (cd "$OUTPUT_DIR" && shasum -a 256 openfang > checksums.txt)
     echo -e "  ${GREEN}✅ Checksums saved to $OUTPUT_DIR/checksums.txt${NC}"
 else
     echo -e "  ${YELLOW}⚠️  sha256sum/shasum not available, skipping checksums${NC}"
@@ -109,13 +100,12 @@ fi
 echo -e "\n${CYAN}📊 Build Summary${NC}"
 echo -e "=============="
 echo -e "  Output Directory: $OUTPUT_DIR"
-echo -e "  Binaries extracted:"
+echo -e "  Binary extracted:"
 echo -e "    ${GREEN}- openfang${NC}"
-echo -e "    ${GREEN}- openfang-api${NC}"
 echo -e "    ${GREEN}- checksums.txt${NC}"
 
 echo -e "\n${GREEN}🎉 Build completed successfully!${NC}"
-echo -e "\n${YELLOW}To use the binaries on Android aarch64:${NC}"
-echo -e "  1. Transfer the binaries to your Android device"
-echo -e "  2. Make them executable: chmod +x openfang openfang-api"
-echo -e "  3. Run them on your device"
+echo -e "\n${YELLOW}To use the binary on Android aarch64:${NC}"
+echo -e "  1. Transfer the binary to your Android device"
+echo -e "  2. Make it executable: chmod +x openfang"
+echo -e "  3. Run it on your device"

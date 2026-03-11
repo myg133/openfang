@@ -54,49 +54,34 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "    ❌ Failed to extract openfang" -ForegroundColor Red
 }
 
-# Extract openfang-api binary
-Write-Host "  - Extracting openfang-api binary..." -ForegroundColor Cyan
-docker cp "$($containerId):/usr/local/bin/openfang-api" "$OutputDir\openfang-api"
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "    ✅ openfang-api extracted" -ForegroundColor Green
-} else {
-    Write-Host "    ❌ Failed to extract openfang-api" -ForegroundColor Red
-}
-
 # Cleanup container
 docker rm $containerId > $null
 
-# Check extracted binaries
-Write-Host "`n🔍 Verifying extracted binaries..." -ForegroundColor Yellow
+# Check extracted binary
+Write-Host "`n🔍 Verifying extracted binary..." -ForegroundColor Yellow
 
-$binaries = @(
-    @{ Name = "openfang"; Path = "$OutputDir\openfang" },
-    @{ Name = "openfang-api"; Path = "$OutputDir\openfang-api" }
-)
+$binary = @{ Name = "openfang"; Path = "$OutputDir\openfang" }
 
-foreach ($binary in $binaries) {
-    if (Test-Path $binary.Path) {
-        $fileInfo = Get-Item $binary.Path
-        Write-Host "  ✅ $($binary.Name): $($fileInfo.Length) bytes" -ForegroundColor Green
-        
-        # Try to get file info (may fail for cross-compiled binaries)
-        try {
-            $fileType = file $binary.Path 2>$null
-            if ($fileType) {
-                Write-Host "     Type: $fileType" -ForegroundColor Gray
-            }
-        } catch {
-            Write-Host "     Type: aarch64-linux-android binary (cross-compiled)" -ForegroundColor Gray
+if (Test-Path $binary.Path) {
+    $fileInfo = Get-Item $binary.Path
+    Write-Host "  ✅ $($binary.Name): $($fileInfo.Length) bytes" -ForegroundColor Green
+    
+    # Try to get file info (may fail for cross-compiled binaries)
+    try {
+        $fileType = file $binary.Path 2>$null
+        if ($fileType) {
+            Write-Host "     Type: $fileType" -ForegroundColor Gray
         }
-    } else {
-        Write-Host "  ❌ $($binary.Name): not found" -ForegroundColor Red
+    } catch {
+        Write-Host "     Type: aarch64-linux-android binary (cross-compiled)" -ForegroundColor Gray
     }
+} else {
+    Write-Host "  ❌ $($binary.Name): not found" -ForegroundColor Red
 }
 
 # Create checksums
 Write-Host "`n🔒 Creating checksums..." -ForegroundColor Yellow
 Get-FileHash -Path "$OutputDir\openfang" -Algorithm SHA256 | Select-Object Hash, @{Name="File";Expression={"openfang"}} | Export-Csv "$OutputDir\checksums.csv" -NoTypeInformation
-Get-FileHash -Path "$OutputDir\openfang-api" -Algorithm SHA256 | Select-Object Hash, @{Name="File";Expression={"openfang-api"}} | Export-Csv "$OutputDir\checksums.csv" -Append -NoTypeInformation
 
 Write-Host "  ✅ Checksums saved to $OutputDir\checksums.csv" -ForegroundColor Green
 
@@ -104,13 +89,12 @@ Write-Host "  ✅ Checksums saved to $OutputDir\checksums.csv" -ForegroundColor 
 Write-Host "`n📊 Build Summary" -ForegroundColor Cyan
 Write-Host "==============" -ForegroundColor Cyan
 Write-Host "  Output Directory: $OutputDir" -ForegroundColor White
-Write-Host "  Binaries extracted:" -ForegroundColor White
+Write-Host "  Binary extracted:" -ForegroundColor White
 Write-Host "    - openfang" -ForegroundColor Green
-Write-Host "    - openfang-api" -ForegroundColor Green
 Write-Host "    - checksums.csv" -ForegroundColor Green
 
 Write-Host "`n🎉 Build completed successfully!" -ForegroundColor Green
-Write-Host "`nTo use the binaries on Android aarch64:" -ForegroundColor Yellow
-Write-Host "  1. Transfer the binaries to your Android device" -ForegroundColor White
-Write-Host "  2. Make them executable: chmod +x openfang openfang-api" -ForegroundColor White
-Write-Host "  3. Run them on your device" -ForegroundColor White
+Write-Host "`nTo use the binary on Android aarch64:" -ForegroundColor Yellow
+Write-Host "  1. Transfer the binary to your Android device" -ForegroundColor White
+Write-Host "  2. Make it executable: chmod +x openfang" -ForegroundColor White
+Write-Host "  3. Run it on your device" -ForegroundColor White
