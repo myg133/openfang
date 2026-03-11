@@ -1,0 +1,74 @@
+# Makefile for Android aarch64 build
+# Usage: make -f Makefile.android help
+
+.PHONY: help build extract clean all
+
+# Variables
+IMAGE_TAG := openfang-android-build:latest
+OUTPUT_DIR := ./android-binaries
+DOCKERFILE := Dockerfile.android-build
+
+help:
+	@echo "OpenFang Android aarch64 Build Commands"
+	@echo "======================================="
+	@echo ""
+	@echo "make -f Makefile.android help       - Show this help message"
+	@echo "make -f Makefile.android build      - Build Docker image"
+	@echo "make -f Makefile.android extract    - Extract binaries from image"
+	@echo "make -f Makefile.android clean      - Remove build artifacts"
+	@echo "make -f Makefile.android all        - Build and extract"
+	@echo ""
+	@echo "Options:"
+	@echo "  OUTPUT_DIR=./custom-dir make -f Makefile.android extract"
+	@echo "  IMAGE_TAG=my-tag:latest make -f Makefile.android build"
+
+build:
+	@echo "🏗️  Building Docker image..."
+	docker build -f $(DOCKERFILE) -t $(IMAGE_TAG) .
+	@echo "✅ Build completed: $(IMAGE_TAG)"
+
+extract:
+	@echo "📦 Extracting binaries to $(OUTPUT_DIR)..."
+	@mkdir -p $(OUTPUT_DIR)
+	@CONTAINER_ID=$$(docker create $(IMAGE_TAG)); \
+	docker cp $$CONTAINER_ID:/usr/local/bin/openfang $(OUTPUT_DIR)/openfang && \
+	docker cp $$CONTAINER_ID:/usr/local/bin/openfang-api $(OUTPUT_DIR)/openfang-api && \
+	docker rm $$CONTAINER_ID > /dev/null
+	@echo "✅ Binaries extracted to $(OUTPUT_DIR)"
+	@ls -lh $(OUTPUT_DIR)
+
+checksums:
+	@echo "🔒 Creating checksums..."
+	@if command -v sha256sum > /dev/null 2>&1; then \
+		cd $(OUTPUT_DIR) && sha256sum openfang openfang-api > checksums.txt; \
+	elif command -v shasum > /dev/null 2>&1; then \
+		cd $(OUTPUT_DIR) && shasum -a 256 openfang openfang-api > checksums.txt; \
+	else \
+		echo "⚠️  sha256sum/shasum not available"; \
+	fi
+
+all: build extract checksums
+	@echo ""
+	@echo "🎉 Build and extraction completed!"
+	@echo "📦 Binaries are in: $(OUTPUT_DIR)"
+
+clean:
+	@echo "🧹 Cleaning build artifacts..."
+	@rm -rf $(OUTPUT_DIR)
+	@docker rmi $(IMAGE_TAG) 2>/dev/null || echo "Image not found or in use"
+	@echo "✅ Cleanup completed"
+
+verify:
+	@echo "🔍 Verifying extracted binaries..."
+	@if [ -f "$(OUTPUT_DIR)/openfang" ]; then \
+		file $(OUTPUT_DIR)/openfang; \
+		ls -lh $(OUTPUT_DIR)/openfang; \
+	else \
+		echo "❌ openfang not found"; \
+	fi
+	@if [ -f "$(OUTPUT_DIR)/openfang-api" ]; then \
+		file $(OUTPUT_DIR)/openfang-api; \
+		ls -lh $(OUTPUT_DIR)/openfang-api; \
+	else \
+		echo "❌ openfang-api not found"; \
+	fi
