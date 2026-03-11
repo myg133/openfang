@@ -1,57 +1,35 @@
-# Multi-stage Dockerfile for Android aarch64 build
-# This file compiles OpenFang for Android aarch64 and allows extracting the binary
+# Android Termux 构建 Dockerfile
+# 使用方法: docker build -f Dockerfile.termux -t openfang-termux .
 
-# Stage 1: Build stage - use Android aarch64 environment and install Rust
-FROM ghcr.io/cross-rs/aarch64-linux-android:main AS builder
+FROM ghcr.io/cross-rs/aarch64-linux-android:main
 
-# Set HOME to avoid sudo issues with rustup
+ENV ANDROID_API=21
+ENV ANDROID_API_aarch64_linux_android=21
+ENV RUSTFLAGS="-C link-arg=-Wl,--hash-style=both"
 ENV HOME=/root
 
-# Install Rust toolchain
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal && \
-    rustup target add aarch64-linux-android
+# 安装依赖
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /project
+# 安装 Rust 并添加 target
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
+    && . /root/.cargo/env \
+    && rustup target add aarch64-linux-android
 
-# Copy the project files
+WORKDIR /app
+
+# 复制源码
 COPY . .
 
-# Build the project for aarch64-linux-android
-# Using cargo directly since we're in the Android environment with proper toolchain
-ENV PATH="/root/.cargo/bin:${PATH}"
-RUN cargo build --target aarch64-linux-android --release --bin openfang
+# 编译
+RUN . /root/.cargo/env \
+    && RUSTFLAGS="-C link-arg=-Wl,--hash-style=both" cargo build --release --target aarch64-linux-android -p openfang-cli
 
-# Stage 2: Export stage - creates a minimal image with just the binaries
-FROM scratch AS export
-
-# Copy binaries from builder stage
-COPY --from=builder /project/target/aarch64-linux-android/release/openfang /openfang
-
-# The scratch stage is used for extraction, not for running
-
-# Stage 3: Final image with utilities for easy binary extraction
-FROM alpine:3.20 AS final
-
-# Install required tools
-RUN apk add --no-cache \
-    ca-certificates \
-    tzdata \
-    file
-
-# Copy binaries from builder stage
-COPY --from=builder /project/target/aarch64-linux-android/release/openfang /usr/local/bin/openfang
-
-# Make binary executable
-RUN chmod +x /usr/local/bin/openfang
-
-# Set working directory
+# 打包输出
+FROM alpine:latest
 WORKDIR /output
-
-# Default command - show binary info
-CMD ["file", "/usr/local/bin/openfang"]
-
-# Metadata
-LABEL maintainer="myg133"
-LABEL description="OpenFang Android aarch64 build with extraction utilities"
-LABEL version="0.3.46"
+COPY --from=0 /app/target/aarch64-linux-android/release/openfang /output/
