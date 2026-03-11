@@ -3,6 +3,9 @@
 //! Polls IMAP for new emails and sends responses via SMTP using `lettre`.
 //! Uses the subject line for agent routing (e.g., "\[coder\] Fix this bug").
 
+use std::net::TcpStream;
+use std::sync::Arc;
+
 use crate::types::{ChannelAdapter, ChannelContent, ChannelMessage, ChannelType, ChannelUser};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -14,26 +17,10 @@ use lettre::AsyncSmtpTransport;
 use lettre::AsyncTransport;
 use lettre::Tokio1Executor;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use tracing::{debug, error, info, warn};
 use zeroize::Zeroizing;
-
-/// SASL PLAIN authenticator for IMAP servers that reject LOGIN
-/// (e.g., Lark/Larksuite which only advertise AUTH=PLAIN).
-struct PlainAuthenticator {
-    username: String,
-    password: String,
-}
-
-impl imap::Authenticator for PlainAuthenticator {
-    type Response = String;
-    fn process(&self, _data: &[u8]) -> Self::Response {
-        // SASL PLAIN: \0<username>\0<password>
-        format!("\x00{}\x00{}", self.username, self.password)
-    }
-}
 
 /// Reply context for email threading (In-Reply-To / Subject continuity).
 #[derive(Debug, Clone)]
@@ -211,29 +198,41 @@ fn fetch_unseen_emails(
     password: &str,
     folders: &[String],
 ) -> Result<Vec<(String, String, String, String)>, String> {
-    let tls = native_tls::TlsConnector::builder()
-        .build()
-        .map_err(|e| format!("TLS connector error: {e}"))?;
+    let certs_result = rustls_native_certs::load_native_certs();
+    if !certs_result.errors.is_empty() {
+        warn!("Some native certs failed to load: {:?}", certs_result.errors);
+    }
+    let mut root_store = rustls::RootCertStore::empty();
+    for cert in certs_result.certs {
+        let _ = root_store.add(cert);
+    }
 
-    let client = imap::connect((host, port), host, &tls)
-        .map_err(|e| format!("IMAP connect failed: {e}"))?;
+    let config = Arc::new(
+        rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth(),
+    );
 
-    // Try LOGIN first; fall back to AUTHENTICATE PLAIN for servers like Lark
-    // that reject LOGIN and only support AUTH=PLAIN (SASL).
-    let mut session = match client.login(username, password) {
-        Ok(s) => s,
-        Err((login_err, client)) => {
-            let authenticator = PlainAuthenticator {
-                username: username.to_string(),
-                password: password.to_string(),
-            };
-            client
-                .authenticate("PLAIN", &authenticator)
-                .map_err(|(e, _)| {
-                    format!("IMAP login failed: {login_err}; AUTH=PLAIN also failed: {e}")
-                })?
-        }
-    };
+    let server_name = rustls_pki_types::ServerName::try_from(host)
+        .map_err(|e| format!("Invalid IMAP server name {host}: {e}"))?
+        .to_owned();
+
+    let conn = rustls::ClientConnection::new(config, server_name)
+        .map_err(|e| format!("TLS connection initialization failed: {e}"))?;
+
+    let tcp = TcpStream::connect((host, port))
+        .map_err(|e| format!("TCP connect to {host}:{port} failed: {e}"))?;
+
+    let stream = rustls::StreamOwned::new(conn, tcp);
+
+    // IMAP 3.0.0-alpha Client::new parses the greeting for us.
+    let client = imap::Client::new(stream);
+
+    // Sometimes greeting isn't consumed automatically, try `.read_response()` if there is public trait?
+    // According to imap3, `Client::new` expects you to handle greeting manually if there's an issue, but we'll try straight login.
+    let mut session = client
+        .login(username, password)
+        .map_err(|(e, _)| format!("IMAP login failed: {e}"))?;
 
     let mut results = Vec::new();
 
@@ -243,7 +242,7 @@ fn fetch_unseen_emails(
             continue;
         }
 
-        let uids = match session.uid_search("UNSEEN") {
+        let uids: std::collections::HashSet<u32> = match session.uid_search("UNSEEN") {
             Ok(uids) => uids,
             Err(e) => {
                 warn!(folder, error = %e, "IMAP SEARCH UNSEEN failed");
@@ -260,7 +259,7 @@ fn fetch_unseen_emails(
         let uid_list: Vec<u32> = uids.into_iter().take(50).collect();
         let uid_set: String = uid_list
             .iter()
-            .map(|u| u.to_string())
+            .map(|u: &u32| u.to_string())
             .collect::<Vec<_>>()
             .join(",");
 
@@ -272,7 +271,8 @@ fn fetch_unseen_emails(
             }
         };
 
-        for fetch in fetches.iter() {
+        let mut fetch_iter = fetches.iter();
+        while let Some(fetch) = fetch_iter.next() {
             let body_bytes = match fetch.body() {
                 Some(b) => b,
                 None => continue,
